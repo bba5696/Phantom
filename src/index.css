@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+/* System font stacks. Preflight applies --font-sans to <html>; the log uses font-mono. */
+@theme {
+  --font-sans: "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
+/*
+  Keep every custom base style inside @layer base.
+
+  Unlayered CSS outranks all cascade layers regardless of specificity. The old
+  unlayered "* { margin: 0; padding: 0 }" reset therefore beat every Tailwind
+  padding and margin utility (those live in @layer utilities), which is why the
+  whole UI sat flush against the window edges. Preflight already performs that
+  reset inside @layer base, so it is not repeated here.
+*/
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    overflow: hidden;
+    background-color: #09090b;
+    color: #f4f4f5;
+    font-size: 14px;
+    user-select: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #27272a;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3f3f46;
+  }
+
+  /*
+    Splash intro (src/Splash.tsx). Only the keyframes live here; durations,
+    easings and delays are set inline from Splash.tsx so the React phase timers
+    and the CSS share a single timeline. The glow colour is the moon's blue
+    (#5b6ee1) sampled from public/icon.png.
+  */
+  @keyframes phantom-letter-in {
+    from { opacity: 0; transform: translate(var(--sx, 0px), 6px); filter: blur(6px); }
+    to   { opacity: 1; transform: translate(0px, 0px);           filter: blur(0px); }
+  }
+
+  @keyframes phantom-letter-engulf {
+    from { opacity: 1; transform: translate(0px, 0px) scale(1);                        filter: blur(0px); }
+    to   { opacity: 0; transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(0.08); filter: blur(2px); }
+  }
+
+  @keyframes phantom-icon-in {
+    from { opacity: 0; transform: scale(0.84); filter: blur(10px); }
+    to   { opacity: 1; transform: scale(1);    filter: blur(0px); }
+  }
+
+  @keyframes phantom-icon-absorb {
+    0%   { transform: scale(1);    filter: brightness(1)    drop-shadow(0 0 0px  rgb(91 110 225 / 0)); }
+    45%  { transform: scale(1.06); filter: brightness(1.2)  drop-shadow(0 0 20px rgb(91 110 225 / 0.45)); }
+    100% { transform: scale(1);    filter: brightness(1.05) drop-shadow(0 0 12px rgb(91 110 225 / 0.18)); }
+  }
+
+  @keyframes phantom-halo-in {
+    from { opacity: 0;    transform: scale(0.6); }
+    to   { opacity: 0.45; transform: scale(1); }
+  }
+
+  @keyframes phantom-halo-pulse {
+    0%   { opacity: 0.45; transform: scale(1); }
+    45%  { opacity: 1;    transform: scale(1.15); }
+    100% { opacity: 0.6;  transform: scale(1.05); }
+  }
+
+  @keyframes phantom-stage-settle {
+    from { transform: translateY(0px); }
+    to   { transform: translateY(var(--settle, 0px)); }
+  }
+
+  @keyframes phantom-splash-out {
+    from { opacity: 1; transform: scale(1); }
+    to   { opacity: 0; transform: scale(0.97); }
+  }
+
+  /* Reduced-motion fallbacks: opacity only, same timeline. */
+  @keyframes phantom-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  @keyframes phantom-fade-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+  }
+}

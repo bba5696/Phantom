@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phantom</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header id="header">
+    <h1 id="title">P H A N T O M</h1>
+    <p id="subtitle">EP Auto-Answer</p>
+  </header>
+
+  <div id="status-bar">
+    <span id="status-dot"></span>
+    <span id="status-text">Idle</span>
+  </div>
+
+  <div id="log-panel">
+    <div id="log-inner"></div>
+  </div>
+
+  <div id="controls">
+    <button id="btn-launch" data-state="idle">Launch</button>
+  </div>
+
+  <section id="creds-card">
+    <p id="creds-label">Credentials</p>
+    <input id="input-email"    type="text"     placeholder="Email address" autocomplete="off" spellcheck="false">
+    <input id="input-password" type="password" placeholder="Password"      autocomplete="off">
+    <button id="btn-save">Save</button>
+  </section>
+
+  <script src="main.js"></script>
+</body>
+</html>
