@@ -2,6 +2,33 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import Splash from './Splash'
+import License from './License'
+
+const CHECKOUT_URL = import.meta.env.VITE_CHECKOUT_URL ?? 'https://your-checkout-url.com'
+
+const IS_DEV_PREVIEW = import.meta.env.DEV && !(window as any).__TAURI_INTERNALS__
+
+if (IS_DEV_PREVIEW) {
+  ;(window as any).__mockInvoke = async (cmd: string, args?: any) => {
+    if (cmd === 'check_license') return false
+    if (cmd === 'activate_license') {
+      if (args?.key === 'AAAA-BBBB-CCCC-DDDD') return { expires_at: null }
+      throw 'Invalid license key'
+    }
+    if (cmd === 'deactivate_license') return
+    if (cmd === 'get_creds') return ['', '']
+    if (cmd === 'get_settings') return [true, true, false]
+    if (cmd === 'save_creds') return
+    if (cmd === 'save_settings') return
+    if (cmd === 'start') return
+    if (cmd === 'stop') return
+    throw `Unknown command: ${cmd}`
+  }
+}
+
+const invokeCmd = IS_DEV_PREVIEW
+  ? (cmd: string, args?: any) => (window as any).__mockInvoke(cmd, args)
+  : invoke
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -75,8 +102,30 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
 // The main UI mounts immediately underneath the splash (so credentials and the
 // event listeners load during the intro) but stays transparent. When the splash
 // has faded to black it calls onDone, unmounts, and the main UI fades in.
+
+function LoadingScreen() {
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-[#09090b]">
+      <svg className="animate-spin h-5 w-5 text-zinc-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+      </svg>
+    </div>
+  )
+}
+
 export default function App() {
   const [splashDone, setSplashDone] = useState(false)
+  const [licensed, setLicensed]     = useState<boolean | null>(null)
+
+  useEffect(() => {
+    invokeCmd('check_license')
+      .then((v: unknown) => setLicensed(v as boolean))
+      .catch(() => setLicensed(false))
+  }, [])
+
+  if (licensed === null) return <LoadingScreen />
+  if (!licensed) return <License onActivated={() => setLicensed(true)} checkoutUrl={CHECKOUT_URL} />
 
   return (
     <>
@@ -117,12 +166,12 @@ function MainView() {
   }, [])
 
   useEffect(() => {
-    invoke<[string, string]>('get_creds')
-      .then(([e, p]) => { if (e) setEmail(e); if (p) setPassword(p) })
+    invokeCmd('get_creds')
+      .then((v: any) => { const [e, p] = v; if (e) setEmail(e); if (p) setPassword(p) })
       .catch(() => {})
 
-    invoke<[boolean, boolean, boolean]>('get_settings')
-      .then(([fs, fss, dm]) => { setFocusSpoof(fs); setFullscreenSpoof(fss); setDebugMode(dm) })
+    invokeCmd('get_settings')
+      .then((v: any) => { const [fs, fss, dm] = v; setFocusSpoof(fs); setFullscreenSpoof(fss); setDebugMode(dm) })
       .catch(() => {})
 
     const unLog = listen<{ msg: string; color: string }>('log', ev => {
@@ -152,21 +201,21 @@ function MainView() {
     if (!running) {
       if (!email || !password) { appendLog('Enter credentials first.', 'warn'); return }
       try {
-        await invoke('start', { email, password, focusSpoof, fullscreenSpoof, debugMode })
+        await invokeCmd('start', { email, password, focusSpoof, fullscreenSpoof, debugMode })
         setRunning(true)
       } catch (e) {
         appendLog(`Error: ${e}`, 'error')
         setStatus({ label: 'Error', state: 'error' })
       }
     } else {
-      try { await invoke('stop') } catch {}
+      try { await invokeCmd('stop') } catch {}
       setRunning(false)
     }
   }
 
   async function handleSave() {
     try {
-      await invoke('save_creds', { email, password })
+      await invokeCmd('save_creds', { email, password })
       appendLog('Credentials saved.', 'dim')
     } catch (e) {
       appendLog(`Save failed: ${e}`, 'error')
@@ -180,7 +229,7 @@ function MainView() {
     if (key === 'focus')      setFocusSpoof(value)
     if (key === 'fullscreen') setFullscreenSpoof(value)
     if (key === 'debug')      setDebugMode(value)
-    try { await invoke('save_settings', { focusSpoof: fs, fullscreenSpoof: fss, debugMode: dm }) } catch {}
+    try { await invokeCmd('save_settings', { focusSpoof: fs, fullscreenSpoof: fss, debugMode: dm }) } catch {}
   }
 
   const dotClass = DOT_BG[status.state] ?? DOT_BG.idle

@@ -3,6 +3,7 @@
 mod cdp;
 mod creds;
 mod settings;
+mod license;
 
 use tauri::Manager;
 
@@ -52,6 +53,26 @@ fn save_settings(focus_spoof: bool, fullscreen_spoof: bool, debug_mode: bool) ->
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn check_license() -> bool {
+    license::check().await
+}
+
+#[tauri::command]
+async fn activate_license(key: String) -> Result<Option<String>, String> {
+    license::activate(&key).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn deactivate_license() -> Result<(), String> {
+    license::deactivate().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(cdp::new_state())
@@ -59,6 +80,8 @@ fn main() {
             start, stop,
             get_creds, save_creds,
             get_settings, save_settings,
+            check_license, activate_license, deactivate_license,
+            open_url,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

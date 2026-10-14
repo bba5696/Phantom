@@ -274,6 +274,36 @@
 
   // ── Short Answer ───────────────────────────────────────────────────────────
 
+  function fillInput(answerText) {
+    const input = document.querySelector(
+      'input[type="text"]:not(:disabled), input[type="search"]:not(:disabled), textarea:not(:disabled)'
+    );
+    if (!input || input.offsetParent === null) return false;
+    const nv = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    nv.call(input, answerText);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+
+  // TEXT_BOX_COMPONENT — answer(s) stored in comp.Options as plain strings
+  function handleTextBox() {
+    const comp = getComponent('TEXT_BOX_COMPONENT');
+    if (!comp) return false;
+    const answer = Array.isArray(comp.Options) && comp.Options.length
+      ? String(comp.Options[0]).trim()
+      : null;
+    if (!answer) return false;
+    log('TextBox: "' + answer + '"', '#4fc');
+
+    const input = document.querySelector('input.text-box-component');
+    if (!input || input.offsetParent === null) return false;
+    const nv = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    nv.call(input, answer);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }
+
   function handleShortAnswer() {
     const comp = getComponent('SHORT_ANSWER_COMPONENT') || getComponent('SHORT_ANSWER');
     if (!comp) return false;
@@ -292,21 +322,7 @@
     }
 
     if (!answerText) return false;
-
-    const input = document.querySelector(
-      'input[type="text"]:not(:disabled), input[type="search"]:not(:disabled)'
-    );
-    if (!input || input.offsetParent === null) return false;
-
-    input.focus();
-    // Use native input value setter so Angular/React detects the change
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype, 'value'
-    ).set;
-    nativeInputValueSetter.call(input, answerText);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
+    return fillInput(answerText);
   }
 
   // ── Cloze / Fill-in-the-blank ──────────────────────────────────────────────
@@ -330,12 +346,11 @@
         word = gap.Answer || gap.CorrectAnswer || (gap.Answers && gap.Answers[0]) || null;
       }
       if (word) {
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLInputElement.prototype, 'value'
-        ).set;
-        nativeInputValueSetter.call(blank, word);
-        blank.dispatchEvent(new Event('input', { bubbles: true }));
-        blank.dispatchEvent(new Event('change', { bubbles: true }));
+        blank.click();
+        blank.focus();
+        blank.select();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, word);
       }
     });
     return true;
@@ -375,13 +390,14 @@
         '.fitg-component input:not(:disabled), [id*="FillInTheGaps"] input:not(:disabled)'
       )].filter(e => e.offsetParent !== null);
       if (!blanks.length) return false;
-      const nv = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
       blanks.forEach((blank, i) => {
         const word = gaps[i] && gaps[i].CorrectOptions && gaps[i].CorrectOptions[0];
         if (word && !blank.value) {
-          nv.call(blank, word);
-          blank.dispatchEvent(new Event('input', { bubbles: true }));
-          blank.dispatchEvent(new Event('change', { bubbles: true }));
+          blank.click();
+          blank.focus();
+          blank.select();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, word);
         }
       });
       return true;
@@ -699,12 +715,9 @@
   // Confirm the "Are you sure?" modal EP shows after Submit Assessment.
   // Only fires when the modal overlay is actually present.
   function clickConfirmSubmit() {
-    const overlay = document.querySelector('[class*="modal"], [class*="dialog"], [class*="overlay"]');
-    if (!overlay || overlay.offsetParent === null) return false;
-    for (const text of ['Yes, submit', 'Submit', 'Confirm', 'Yes']) {
-      const btn = findBtn(text);
-      if (btn) { btn.click(); return true; }
-    }
+    // Assessment review modal "Submit now" button
+    const submitBtn = document.querySelector('button.submit-button');
+    if (submitBtn && submitBtn.offsetParent !== null) { submitBtn.click(); return true; }
     return false;
   }
 
@@ -730,6 +743,8 @@
       answered = clickAssessmentMCQ();
     } else if (compType === 'SHORT_ANSWER_COMPONENT' || compType === 'SHORT_ANSWER') {
       answered = handleShortAnswer();
+    } else if (compType === 'TEXT_BOX_COMPONENT') {
+      answered = handleTextBox();
     } else if (compType === 'FILL_IN_GAPS_COMPONENT') {
       answered = handleFillInGaps();
     } else if (compType === 'CLOZE_COMPONENT' || compType === 'CLOZE') {
@@ -740,13 +755,16 @@
     }
 
     if (answered) {
-      reschedule(400, () => {
+      reschedule(600, () => {
         const progress = getAssessmentProgress();
         if (progress && progress.current >= progress.total) {
-          // Last question — submit
-          if (!clickSubmitAssessment()) reschedule(800, () => clickSubmitAssessment());
+          // Last question — submit assessment
+          if (!clickSubmitAssessment()) reschedule(1000, () => {
+            if (!clickSubmitAssessment()) reschedule(1000, () => clickSubmitAssessment());
+          });
         } else {
-          if (!clickNext()) reschedule(800, () => { if (!clickNext()) clickSubmitAssessment(); });
+          // Not last — click Next (never fall back to Submit here)
+          if (!clickNext()) reschedule(800, () => { if (!clickNext()) reschedule(800); });
           else reschedule(600);
         }
       });
@@ -806,6 +824,13 @@
 
     if (compType === 'SHORT_ANSWER_COMPONENT' || compType === 'SHORT_ANSWER') {
       if (handleShortAnswer()) {
+        reschedule(600, () => { clickSubmit(); reschedule(1500); });
+        return;
+      }
+    }
+
+    if (compType === 'TEXT_BOX_COMPONENT') {
+      if (handleTextBox()) {
         reschedule(600, () => { clickSubmit(); reschedule(1500); });
         return;
       }
