@@ -78,6 +78,31 @@ fn ensure_machine_id(store: &mut LicenseStore) -> String {
     store.machine_id.clone()
 }
 
+fn now_rfc3339() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    // Format as RFC-3339 / ISO-8601 UTC: YYYY-MM-DDTHH:MM:SSZ
+    let s = secs % 60;
+    let m = (secs / 60) % 60;
+    let h = (secs / 3600) % 24;
+    let days = secs / 86400;
+    // Days since Unix epoch → Gregorian date (works until 2100)
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let yr = if mo <= 2 { y + 1 } else { y };
+    format!("{yr:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
+}
+
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
@@ -160,7 +185,7 @@ pub async fn activate(key: &str) -> Result<Option<String>> {
 
     store.key = key.to_owned();
     store.expires_at = data.expires_at.clone();
-    store.activated_at = Some(chrono::Utc::now().to_rfc3339());
+    store.activated_at = Some(now_rfc3339());
     save_store(&store)?;
 
     Ok(data.expires_at)
