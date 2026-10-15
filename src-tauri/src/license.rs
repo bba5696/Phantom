@@ -10,6 +10,10 @@ struct LicenseStore {
     machine_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     expires_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    activated_at: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -26,6 +30,19 @@ struct ActivateResponse {
 #[derive(Deserialize)]
 struct ValidateResponse {
     valid: bool,
+    expires_at: Option<String>,
+    email: Option<String>,
+}
+
+/// Returned by `check_license` and consumed by the frontend.
+#[derive(Serialize, Clone, Default)]
+pub struct LicenseInfo {
+    pub valid: bool,
+    pub key: String,
+    pub expires_at: Option<String>,
+    pub email: Option<String>,
+    /// ISO-8601 timestamp of first activation; used for the expiry progress bar.
+    pub activated_at: Option<String>,
 }
 
 fn store_path() -> PathBuf {
@@ -68,10 +85,22 @@ fn client() -> reqwest::Client {
         .expect("reqwest client")
 }
 
-/// Called on every app start. Falls back to local if server is unreachable.
-pub async fn check() -> bool {
+fn info_from_store(store: &LicenseStore, valid: bool) -> LicenseInfo {
+    LicenseInfo {
+        valid,
+        key: store.key.clone(),
+        expires_at: store.expires_at.clone(),
+        email: store.email.clone(),
+        activated_at: store.activated_at.clone(),
+    }
+}
+
+/// Called on every app start. Falls back to local store if server is unreachable.
+pub async fn check() -> LicenseInfo {
     let mut store = load_store();
-    if store.key.is_empty() { return false; }
+    if store.key.is_empty() {
+        return LicenseInfo::default();
+    }
     let machine_id = ensure_machine_id(&mut store);
 
     let res = client()
@@ -82,14 +111,25 @@ pub async fn check() -> bool {
 
     match res {
         Ok(r) if r.status().is_success() => {
-            r.json::<ValidateResponse>().await.map(|v| v.valid).unwrap_or(false)
+            match r.json::<ValidateResponse>().await {
+                Ok(v) if v.valid => {
+                    // Refresh cached expiry and email from server.
+                    if v.expires_at.is_some() { store.expires_at = v.expires_at; }
+                    if v.email.is_some() { store.email = v.email; }
+                    let _ = save_store(&store);
+                    info_from_store(&store, true)
+                }
+                Ok(_) => info_from_store(&store, false),
+                Err(_) => info_from_store(&store, false),
+            }
         }
-        Err(_) => true, // server unreachable — trust local store
-        _ => false,
+        // Server unreachable — trust local store.
+        Err(_) => info_from_store(&store, true),
+        _ => info_from_store(&store, false),
     }
 }
 
-/// Validates with the server and saves the key+machine_id locally on success.
+/// Activates the key on this machine and stores the result locally.
 pub async fn activate(key: &str) -> Result<Option<String>> {
     let clean = key.replace('-', "");
     if clean.len() != 16 {
@@ -108,7 +148,6 @@ pub async fn activate(key: &str) -> Result<Option<String>> {
 
     if !res.status().is_success() {
         let msg = res.text().await.unwrap_or_else(|_| "Activation failed.".into());
-        // Try to extract a human-readable message from JSON error responses
         let display = serde_json::from_str::<serde_json::Value>(&msg)
             .ok()
             .and_then(|v| v["message"].as_str().map(ToOwned::to_owned))
@@ -121,6 +160,7 @@ pub async fn activate(key: &str) -> Result<Option<String>> {
 
     store.key = key.to_owned();
     store.expires_at = data.expires_at.clone();
+    store.activated_at = Some(chrono::Utc::now().to_rfc3339());
     save_store(&store)?;
 
     Ok(data.expires_at)

@@ -19,9 +19,10 @@ const FOCUS_RING =
 interface Props {
   onActivated: () => void
   checkoutUrl?: string
+  expired?: boolean
 }
 
-export default function License({ onActivated, checkoutUrl = CHECKOUT_URL }: Props) {
+export default function License({ onActivated, checkoutUrl = CHECKOUT_URL, expired = false }: Props) {
   const [otpValue, setOtpValue] = useState('')
   const [loading, setLoading]  = useState(false)
   const [error, setError]      = useState<string | null>(null)
@@ -90,6 +91,13 @@ export default function License({ onActivated, checkoutUrl = CHECKOUT_URL }: Pro
       </header>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-5 px-4 py-6">
+
+        {expired && (
+          <div className="w-full rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-center">
+            <p className="text-[12px] font-medium text-red-400">Your license has expired.</p>
+            <p className="mt-0.5 text-[11px] text-red-500">Purchase a renewal to continue using Phantom.</p>
+          </div>
+        )}
 
         <div className="flex flex-col items-center gap-2 text-center">
           <KeyRound size={32} className="text-zinc-400" />

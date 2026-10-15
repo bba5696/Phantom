@@ -54,7 +54,7 @@ fn save_settings(focus_spoof: bool, fullscreen_spoof: bool, debug_mode: bool) ->
 }
 
 #[tauri::command]
-async fn check_license() -> bool {
+async fn check_license() -> license::LicenseInfo {
     license::check().await
 }
 

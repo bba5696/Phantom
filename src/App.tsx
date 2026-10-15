@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import Splash from './Splash'
 import License from './License'
+import ExpiryBadge, { type LicenseInfo } from './LicenseStatus'
 
 const CHECKOUT_URL = import.meta.env.VITE_CHECKOUT_URL ?? 'https://your-checkout-url.com'
 
@@ -10,7 +11,13 @@ const IS_DEV_PREVIEW = import.meta.env.DEV && !(window as any).__TAURI_INTERNALS
 
 if (IS_DEV_PREVIEW) {
   ;(window as any).__mockInvoke = async (cmd: string, args?: any) => {
-    if (cmd === 'check_license') return false
+    if (cmd === 'check_license') return {
+      valid: true,
+      key: 'AAAA-BBBB-CCCC-DDDD',
+      expires_at: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+      email: 'test@example.com',
+      activated_at: new Date(Date.now() - 27 * 86_400_000).toISOString(),
+    }
     if (cmd === 'activate_license') {
       if (args?.key === 'AAAA-BBBB-CCCC-DDDD') return { expires_at: null }
       throw 'Invalid license key'
@@ -115,17 +122,27 @@ function LoadingScreen() {
 }
 
 export default function App() {
-  const [splashDone, setSplashDone] = useState(false)
-  const [licensed, setLicensed]     = useState<boolean | null>(null)
+  const [splashDone,  setSplashDone]  = useState(false)
+  const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(null)
 
   useEffect(() => {
     invokeCmd('check_license')
-      .then((v: unknown) => setLicensed(v as boolean))
-      .catch(() => setLicensed(false))
+      .then((info: unknown) => setLicenseInfo(info as LicenseInfo))
+      .catch(() => setLicenseInfo({ valid: false, key: '', expires_at: null, email: null, activated_at: null }))
   }, [])
 
-  if (licensed === null) return <LoadingScreen />
-  if (!licensed) return <License onActivated={() => setLicensed(true)} checkoutUrl={CHECKOUT_URL} />
+  if (licenseInfo === null) return <LoadingScreen />
+
+  if (!licenseInfo.valid) {
+    const expired = licenseInfo.key !== ''
+    return (
+      <License
+        onActivated={() => invokeCmd('check_license').then(info => setLicenseInfo(info as LicenseInfo)).catch(() => {})}
+        checkoutUrl={CHECKOUT_URL}
+        expired={expired}
+      />
+    )
+  }
 
   return (
     <>
@@ -135,7 +152,10 @@ export default function App() {
           splashDone ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        <MainView />
+        <MainView
+          licenseInfo={licenseInfo}
+          onDeactivated={() => setLicenseInfo({ valid: false, key: '', expires_at: null, email: null, activated_at: null })}
+        />
       </div>
       {!splashDone && <Splash onDone={() => setSplashDone(true)} />}
     </>
@@ -144,7 +164,7 @@ export default function App() {
 
 // ── Main view ──────────────────────────────────────────────────────────────────
 
-function MainView() {
+function MainView({ licenseInfo, onDeactivated }: { licenseInfo: LicenseInfo; onDeactivated: () => void }) {
   const [running,  setRunning]  = useState(false)
   const [status,   setStatus]   = useState<{ label: string; state: StatusState }>({ label: 'Idle', state: 'idle' })
   // Seeded here instead of appended from the mount effect: StrictMode runs
@@ -238,15 +258,18 @@ function MainView() {
     <div className="h-full w-full flex flex-col overflow-hidden bg-[#09090b] text-zinc-100">
 
       {/* ── Header ── */}
-      <header className="flex h-10 flex-shrink-0 items-center justify-between gap-4 border-b border-zinc-800 px-4">
+      <header className="flex h-10 flex-shrink-0 items-center justify-between gap-3 border-b border-zinc-800 px-4">
         <span className="flex-shrink-0 text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-100">
           Phantom
         </span>
-        <div className="flex min-w-0 items-center gap-2" title={status.label}>
-          <span
-            className={`size-1.5 flex-shrink-0 rounded-full ${dotClass} ${status.state === 'running' ? 'animate-pulse' : ''}`}
-          />
-          <span className="truncate text-[11px] text-zinc-400">{status.label}</span>
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
+          <ExpiryBadge info={licenseInfo} onDeactivated={onDeactivated} invokeCmd={invokeCmd} />
+          <div className="flex min-w-0 items-center gap-2" title={status.label}>
+            <span
+              className={`size-1.5 flex-shrink-0 rounded-full ${dotClass} ${status.state === 'running' ? 'animate-pulse' : ''}`}
+            />
+            <span className="truncate text-[11px] text-zinc-400">{status.label}</span>
+          </div>
         </div>
       </header>
 

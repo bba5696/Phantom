@@ -1,59 +1,133 @@
-import { invoke } from '@tauri-apps/api/core'
+import { useState, useRef, useEffect } from 'react'
 
-const IS_DEV_PREVIEW = import.meta.env.DEV && !(window as any).__TAURI_INTERNALS__
-
-const invokeCmd = IS_DEV_PREVIEW
-  ? (cmd: string, args?: any) => (window as any).__mockInvoke(cmd, args)
-  : invoke
+export interface LicenseInfo {
+  valid: boolean
+  key: string
+  expires_at: string | null
+  email: string | null
+  activated_at: string | null
+}
 
 interface Props {
-  licenseKey: string
-  expiresAt: string | null
+  info: LicenseInfo
   onDeactivated: () => void
+  invokeCmd: (cmd: string, args?: any) => Promise<any>
 }
 
 function maskKey(key: string): string {
   const clean = key.replace(/-/g, '')
-  const last4 = clean.slice(-4)
-  return `••••-••••-••••-${last4}`
+  return `••••-••••-••••-${clean.slice(-4)}`
 }
 
-export default function LicenseStatus({ licenseKey, expiresAt, onDeactivated }: Props) {
+function daysLeft(expires_at: string | null): number | null {
+  if (!expires_at) return null
+  return Math.ceil((new Date(expires_at).getTime() - Date.now()) / 86_400_000)
+}
+
+function badgeLabel(days: number | null): string {
+  if (days === null) return '∞'
+  if (days <= 0) return 'Expired'
+  if (days === 1) return '1d left'
+  if (days <= 14) return `${days}d left`
+  return `Exp ${new Date(Date.now() + days * 86_400_000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+}
+
+function badgeColor(days: number | null): string {
+  if (days === null) return 'text-zinc-500 border-zinc-700'
+  if (days <= 0) return 'text-red-400 border-red-800 animate-pulse'
+  if (days <= 3) return 'text-red-400 border-red-800'
+  if (days <= 7) return 'text-amber-400 border-amber-800'
+  return 'text-emerald-400 border-emerald-800'
+}
+
+function progressPercent(activated_at: string | null, expires_at: string | null): number | null {
+  if (!expires_at || !activated_at) return null
+  const start = new Date(activated_at).getTime()
+  const end = new Date(expires_at).getTime()
+  const now = Date.now()
+  if (end <= start) return null
+  return Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100))
+}
+
+export default function ExpiryBadge({ info, onDeactivated, invokeCmd }: Props) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    if (open) document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [open])
+
+  const days = daysLeft(info.expires_at)
+  const pct = progressPercent(info.activated_at, info.expires_at)
+
   async function handleDeactivate() {
-    const confirmed = window.confirm('Deactivate this license? You will need to re-enter your key to use the app.')
-    if (!confirmed) return
-    try {
-      await invokeCmd('deactivate_license')
-      onDeactivated()
-    } catch {}
+    setOpen(false)
+    const ok = window.confirm('Deactivate this license? You will need to re-enter your key to use the app.')
+    if (!ok) return
+    try { await invokeCmd('deactivate_license') } catch {}
+    onDeactivated()
   }
 
-  const expiry = expiresAt
-    ? `Expires ${new Date(expiresAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`
-    : 'Lifetime'
-
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-      <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-500">
-        License
-      </p>
+    <div ref={ref} className="relative flex-shrink-0">
+      {/* Badge */}
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className={`rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none transition-colors hover:opacity-80 ${badgeColor(days)}`}
+      >
+        {badgeLabel(days)}
+      </button>
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <span className="size-1.5 rounded-full bg-emerald-500" />
-          <span className="text-[11px] text-emerald-400">Active</span>
+      {/* Hover panel */}
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-56 rounded-lg border border-zinc-700 bg-[#09090b] p-3 shadow-xl">
+          <p className="mb-2 text-[10px] font-medium uppercase tracking-widest text-zinc-500">License</p>
+
+          {/* Key */}
+          <p className="font-mono text-[11px] text-zinc-300">{maskKey(info.key)}</p>
+
+          {/* Email */}
+          {info.email && (
+            <p className="mt-1 text-[11px] text-zinc-400 truncate">{info.email}</p>
+          )}
+
+          {/* Progress bar */}
+          {pct !== null && (
+            <div className="mt-3">
+              <div className="mb-1 flex justify-between text-[10px] text-zinc-500">
+                <span>{days !== null && days > 0 ? `${days}d remaining` : 'Expired'}</span>
+                <span>{Math.round(pct)}% used</span>
+              </div>
+              <div className="h-1 w-full rounded-full bg-zinc-800">
+                <div
+                  className={`h-1 rounded-full transition-all ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Expiry */}
+          <p className="mt-2 text-[10px] text-zinc-500">
+            {info.expires_at
+              ? `Expires ${new Date(info.expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`
+              : 'Lifetime license'}
+          </p>
+
+          <button
+            type="button"
+            onClick={handleDeactivate}
+            className="mt-3 w-full rounded border border-zinc-800 py-1 text-[11px] text-zinc-500 transition-colors hover:border-red-800 hover:text-red-400"
+          >
+            Deactivate
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={handleDeactivate}
-          className="text-[11px] text-zinc-500 transition-colors hover:text-red-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
-        >
-          Deactivate
-        </button>
-      </div>
-
-      <p className="font-mono text-[11px] text-zinc-400">{maskKey(licenseKey)}</p>
-      <p className="text-[10px] text-zinc-500">{expiry}</p>
+      )}
     </div>
   )
 }
