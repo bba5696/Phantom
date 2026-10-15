@@ -5,6 +5,25 @@ import Splash from './Splash'
 import License from './License'
 import ExpiryBadge, { type LicenseInfo } from './LicenseStatus'
 
+let checkForUpdate: (() => Promise<void>) | null = null
+if ((window as any).__TAURI_INTERNALS__) {
+  import('@tauri-apps/plugin-updater').then(({ check }) => {
+    import('@tauri-apps/plugin-process').then(({ relaunch }) => {
+      checkForUpdate = async () => {
+        try {
+          const update = await check()
+          if (update?.available) {
+            const ok = window.confirm(`Update ${update.version} is available. Install now?`)
+            if (!ok) return
+            await update.downloadAndInstall()
+            await relaunch()
+          }
+        } catch {}
+      }
+    })
+  })
+}
+
 const CHECKOUT_URL = import.meta.env.VITE_CHECKOUT_URL ?? 'https://your-checkout-url.com'
 
 const IS_DEV_PREVIEW = import.meta.env.DEV && !(window as any).__TAURI_INTERNALS__
@@ -137,7 +156,7 @@ export default function App() {
     const expired = licenseInfo.key !== ''
     return (
       <License
-        onActivated={() => invokeCmd('check_license').then(info => setLicenseInfo(info as LicenseInfo)).catch(() => {})}
+        onActivated={() => invokeCmd('check_license').then((info: unknown) => setLicenseInfo(info as LicenseInfo)).catch(() => {})}
         checkoutUrl={CHECKOUT_URL}
         expired={expired}
       />
@@ -163,6 +182,30 @@ export default function App() {
 }
 
 // ── Main view ──────────────────────────────────────────────────────────────────
+
+function UpdateBadge() {
+  const [available, setAvailable] = useState(false)
+
+  useEffect(() => {
+    if (!(window as any).__TAURI_INTERNALS__) return
+    let cancelled = false
+    import('@tauri-apps/plugin-updater').then(({ check }) => {
+      check().then(u => { if (!cancelled && u?.available) setAvailable(true) }).catch(() => {})
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  if (!available) return null
+  return (
+    <button
+      type="button"
+      onClick={() => checkForUpdate?.()}
+      className="rounded border border-blue-800 px-1.5 py-0.5 text-[10px] font-medium leading-none text-blue-400 transition-colors hover:bg-blue-900/30"
+    >
+      Update
+    </button>
+  )
+}
 
 function MainView({ licenseInfo, onDeactivated }: { licenseInfo: LicenseInfo; onDeactivated: () => void }) {
   const [running,  setRunning]  = useState(false)
@@ -263,6 +306,7 @@ function MainView({ licenseInfo, onDeactivated }: { licenseInfo: LicenseInfo; on
           Phantom
         </span>
         <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
+          <UpdateBadge />
           <ExpiryBadge info={licenseInfo} onDeactivated={onDeactivated} invokeCmd={invokeCmd} />
           <div className="flex min-w-0 items-center gap-2" title={status.label}>
             <span

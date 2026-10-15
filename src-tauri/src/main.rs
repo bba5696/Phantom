@@ -75,6 +75,8 @@ fn open_url(url: String) -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(cdp::new_state())
         .invoke_handler(tauri::generate_handler![
             start, stop,
